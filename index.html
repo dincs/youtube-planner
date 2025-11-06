@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>YouTube Family Payment Tracker — Google Drive (Live) [Fixed]</title>
+  <title>YouTube Family Payment Tracker (Multi-Year)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
   <style>.dot{width:10px;height:10px;border-radius:9999px;display:inline-block}</style>
@@ -13,7 +13,7 @@
     <header class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold">YouTube Family Payment Tracker</h1>
-        <p class="text-sm text-slate-500">Live storage on Google Drive via Google Apps Script. (CORS-friendly)</p>
+        <p class="text-sm text-slate-500">Now supports multiple years — Live synced via Google Drive</p>
       </div>
       <div class="flex items-center gap-2">
         <button id="exportExcelBtn" class="px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700">Export Excel</button>
@@ -23,6 +23,7 @@
     </header>
 
     <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <!-- GENERAL -->
       <div class="bg-white rounded-xl shadow p-4">
         <h2 class="font-semibold mb-3">General</h2>
         <div class="flex gap-3 items-center mb-3">
@@ -35,6 +36,7 @@
         </div>
       </div>
 
+      <!-- MEMBERS -->
       <div class="bg-white rounded-xl shadow p-4">
         <h2 class="font-semibold mb-3">Members <span id="memberCount" class="text-xs text-slate-500"></span></h2>
         <div id="memberList" class="space-y-2 mb-3"></div>
@@ -45,8 +47,9 @@
         <p class="text-xs text-slate-500 mt-2">Max 6 members.</p>
       </div>
 
+      <!-- MONTHS -->
       <div class="bg-white rounded-xl shadow p-4">
-        <h2 class="font-semibold mb-3">Months</h2>
+        <h2 class="font-semibold mb-3">Months / Years</h2>
         <div class="flex items-center gap-2 mb-3">
           <input id="addMonthInput" type="month" class="border rounded-lg px-3 py-2">
           <button id="addMonthBtn" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">Add Month</button>
@@ -58,6 +61,7 @@
       </div>
     </section>
 
+    <!-- TABLE -->
     <section class="bg-white rounded-xl shadow overflow-x-auto">
       <div class="flex items-center justify-between px-4 py-2 border-b">
         <div id="statusBar" class="text-sm text-slate-500 flex items-center gap-2">
@@ -75,20 +79,23 @@
         <tfoot class="bg-slate-50" id="tableFoot"></tfoot>
       </table>
     </section>
-    <p class="text-xs text-slate-500 mt-4">Make sure you use the **/exec** Web App URL (not /dev) and access is set to “Anyone with the link”.</p>
+
+    <p class="text-xs text-slate-500 mt-4">
+      Use your Google Apps Script Web App **/exec** endpoint with access “Anyone with the link”.
+    </p>
   </div>
 
   <script>
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwG79b42uNepSLHQ09R9l--VrnnuYN3rON0ohMM82wdx3HRC-iMUuumdc6iuOCY0o2V/exec";
     const DRIVE_FILE_NAME = "youtube-family-tracker.json";
 
-    const el = (id) => document.getElementById(id);
-    function setStatus(text, color){ el("statusText").textContent=text; el("statusDot").style.background=color||"#aaa"; }
+    const el = (id)=>document.getElementById(id);
+    function setStatus(t,c){ el("statusText").textContent=t; el("statusDot").style.background=c||"#aaa"; }
 
     const MAX_MEMBERS=6;
     let state={currency:"MYR",monthlyAmount:10,members:[{id:crypto.randomUUID(),name:"Member 1",active:true}],months:[],payments:{}};
-
     let saveTimer=null;
+
     function scheduleSave(){ setStatus("Saving…","#fbbf24"); clearTimeout(saveTimer); saveTimer=setTimeout(remoteSave,600); }
 
     async function remoteLoad(){
@@ -96,87 +103,186 @@
       try{
         const url=new URL(GAS_WEB_APP_URL);
         url.searchParams.set("fileName",DRIVE_FILE_NAME);
-        const res=await fetch(url.toString(),{method:"GET"});
-        if(!res.ok) throw new Error(await res.text());
-        const payload=await res.json();
-        if(payload && payload.state) state=payload.state;
+        const res=await fetch(url);
+        const data=await res.json();
+        if(data?.state) state=data.state;
         setStatus("Loaded","#10b981");
-      }catch(err){ console.error(err); setStatus("Load failed","#ef4444"); alert("Load failed. Check you are using the /exec URL and Web App access is 'Anyone with the link'."); }
+      }catch(e){ console.error(e); setStatus("Load failed","#ef4444"); alert("Load failed – check /exec access."); }
     }
 
     async function remoteSave(){
       try{
         const res=await fetch(GAS_WEB_APP_URL+"?fileName="+encodeURIComponent(DRIVE_FILE_NAME),{
-          method:"POST",
-          headers:{ "Content-Type":"text/plain" }, // avoid CORS preflight
-          body: JSON.stringify({state})
+          method:"POST", headers:{ "Content-Type":"text/plain" }, body:JSON.stringify({state})
         });
         if(!res.ok) throw new Error(await res.text());
         setStatus("Saved","#10b981");
-      }catch(err){ console.error(err); setStatus("Save failed","#ef4444"); alert("Save failed. Ensure /exec URL and access is 'Anyone with the link'."); }
+      }catch(e){ console.error(e); setStatus("Save failed","#ef4444"); alert("Save failed."); }
     }
 
-    function formatMonthLabel(ym){ const[a,b]=ym.split("-").map(Number); const d=new Date(a,b-1,1); return d.toLocaleString(undefined,{month:"long",year:"numeric"}); }
+    // --- Multi-year support helpers ---
+    function formatMonthLabel(ym){ const [y,m]=ym.split("-").map(Number); const d=new Date(y,m-1,1); return d.toLocaleString(undefined,{month:"short",year:"numeric"}); }
     function ensurePaymentEntry(m){ if(!state.payments[m]) state.payments[m]={}; state.members.forEach(x=>{ if(state.payments[m][x.id]===undefined) state.payments[m][x.id]=false; }); }
-    function recalcFooters(){
-      const tfoot=el("tableFoot"); if(!state.months.length){ tfoot.innerHTML=""; return; }
-      const totals={}; state.members.forEach(m=>totals[m.id]=0);
-      state.months.forEach(mon=>{ const pm=state.payments[mon]||{}; state.members.forEach(m=>{ if(pm[m.id]) totals[m.id]++; }); });
-      const tr1=document.createElement("tr"); tr1.className="text-sm"; let c1=`<td class="px-4 py-2 font-semibold">Paid Count</td>`;
-      state.members.forEach(m=>c1+=`<td class="px-4 py-2 text-center">${totals[m.id]}</td>`); c1+=`<td class="px-4 py-2"></td>`; tr1.innerHTML=c1;
-      const tr2=document.createElement("tr"); tr2.className="text-sm"; let c2=`<td class="px-4 py-2 font-semibold">Total Paid (${state.currency})</td>`;
-      state.members.forEach(m=>{ const amt=(totals[m.id]*Number(state.monthlyAmount)).toFixed(2); c2+=`<td class="px-4 py-2 text-center">${amt}</td>`; }); c2+=`<td class="px-4 py-2"></td>`; tr2.innerHTML=c2;
-      tfoot.innerHTML=""; tfoot.appendChild(tr1); tfoot.appendChild(tr2);
+    function sortMonths(){ state.months.sort((a,b)=>a.localeCompare(b)); }
+
+    function groupMonthsByYear(){
+      const map={};
+      state.months.forEach(m=>{
+        const [y]=m.split("-");
+        if(!map[y]) map[y]=[];
+        map[y].push(m);
+      });
+      return Object.keys(map).sort().map(y=>({year:y,months:map[y].sort()}));
     }
+
+    function recalcFooters(){
+      const tfoot=el("tableFoot");
+      if(!state.months.length){ tfoot.innerHTML=""; return; }
+      const totals={}; state.members.forEach(m=>totals[m.id]=0);
+      state.months.forEach(mon=>{
+        const pm=state.payments[mon]||{};
+        state.members.forEach(m=>{ if(pm[m.id]) totals[m.id]++; });
+      });
+      const tr1=document.createElement("tr");
+      tr1.className="text-sm";
+      let c1=`<td class="px-4 py-2 font-semibold">Paid Count</td>`;
+      state.members.forEach(m=>c1+=`<td class="px-4 py-2 text-center">${totals[m.id]}</td>`);
+      c1+=`<td></td>`; tr1.innerHTML=c1;
+
+      const tr2=document.createElement("tr");
+      tr2.className="text-sm";
+      let c2=`<td class="px-4 py-2 font-semibold">Total Paid (${state.currency})</td>`;
+      state.members.forEach(m=>{
+        const amt=(totals[m.id]*Number(state.monthlyAmount)).toFixed(2);
+        c2+=`<td class="px-4 py-2 text-center">${amt}</td>`;
+      });
+      c2+=`<td></td>`; tr2.innerHTML=c2;
+
+      tfoot.innerHTML=""; tfoot.append(tr1,tr2);
+    }
+
     function renderTable(){
       const thead=el("tableHead"), tbody=el("tableBody");
-      let head="<tr>"; head+=`<th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Month</th>`;
-      state.members.forEach(m=>{ const cls=m.active?"text-slate-700":"text-slate-400 line-through"; head+=`<th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider"><span class="${cls}">${m.name}</span></th>`; });
-      head+=`<th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">Summary</th></tr>`; thead.innerHTML=head;
-      let body=""; state.months.forEach(mon=>{ ensurePaymentEntry(mon); const pm=state.payments[mon]; let paid=0; state.members.forEach(m=>{ if(pm[m.id]) paid++; });
-        const due=state.members.length*Number(state.monthlyAmount), collected=paid*Number(state.monthlyAmount), outstanding=due-collected;
-        body+=`<tr class="hover:bg-slate-50"><td class="px-4 py-2 whitespace-nowrap">${formatMonthLabel(mon)}</td>`;
-        state.members.forEach(m=>{ const checked=pm[m.id]?"checked":"", dis=m.active?"":"disabled"; body+=`<td class="px-4 py-2 text-center"><input type="checkbox" data-month="${mon}" data-member="${m.id}" class="paymentCheck w-5 h-5" ${checked} ${dis}/></td>`; });
-        body+=`<td class="px-4 py-2 text-right text-sm"><div class="text-slate-700">${state.currency} ${collected.toFixed(2)} / ${due.toFixed(2)}</div><div class="text-xs ${outstanding>0?"text-amber-600":"text-emerald-600"}">${outstanding>0?"Outstanding: "+state.currency+" "+outstanding.toFixed(2):"All paid"}</div></td></tr>`;
-      }); tbody.innerHTML=body;
-      document.querySelectorAll(".paymentCheck").forEach(cb=>cb.addEventListener("change",e=>{ const mon=e.target.dataset.month, id=e.target.dataset.member; ensurePaymentEntry(mon); state.payments[mon][id]=e.target.checked; renderTable(); scheduleSave(); }));
+      let head="<tr><th class='px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider'>Month</th>";
+      state.members.forEach(m=>{
+        const cls=m.active?"text-slate-700":"text-slate-400 line-through";
+        head+=`<th class='px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider'><span class='${cls}'>${m.name}</span></th>`;
+      });
+      head+=`<th class='px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider'>Summary</th></tr>`;
+      thead.innerHTML=head;
+
+      let body="";
+      const groups=groupMonthsByYear();
+      groups.forEach(g=>{
+        body+=`<tr class="bg-slate-100"><td colspan="${state.members.length+2}" class="px-4 py-2 font-semibold">${g.year}</td></tr>`;
+        g.months.forEach(mon=>{
+          ensurePaymentEntry(mon);
+          const pm=state.payments[mon]; let paid=0;
+          state.members.forEach(m=>{ if(pm[m.id]) paid++; });
+          const due=state.members.length*Number(state.monthlyAmount),
+                collected=paid*Number(state.monthlyAmount),
+                outstanding=due-collected;
+          body+=`<tr class="hover:bg-slate-50">
+            <td class="px-4 py-2">${formatMonthLabel(mon)}</td>`;
+          state.members.forEach(m=>{
+            const checked=pm[m.id]?"checked":"", dis=m.active?"":"disabled";
+            body+=`<td class="px-4 py-2 text-center"><input type="checkbox" data-month="${mon}" data-member="${m.id}" class="paymentCheck w-5 h-5" ${checked} ${dis}></td>`;
+          });
+          body+=`<td class="px-4 py-2 text-right text-sm"><div>${state.currency} ${collected.toFixed(2)} / ${due.toFixed(2)}</div>
+          <div class="text-xs ${outstanding>0?"text-amber-600":"text-emerald-600"}">${outstanding>0?"Outstanding: "+state.currency+" "+outstanding.toFixed(2):"All paid"}</div></td></tr>`;
+        });
+      });
+      tbody.innerHTML=body;
+      document.querySelectorAll(".paymentCheck").forEach(cb=>
+        cb.addEventListener("change",e=>{
+          const mon=e.target.dataset.month,id=e.target.dataset.member;
+          ensurePaymentEntry(mon); state.payments[mon][id]=e.target.checked;
+          renderTable(); scheduleSave();
+        })
+      );
       recalcFooters();
     }
+
+    // MEMBER PANEL + EVENTS unchanged except sorting
     function renderMembersPanel(){
-      const list=el("memberList"), count=el("memberCount"); count.textContent=`(${state.members.length}/${MAX_MEMBERS})`; list.innerHTML="";
-      state.members.forEach(m=>{ const row=document.createElement("div"); row.className="flex items-center gap-2";
-        row.innerHTML=`<input type="text" class="flex-1 border rounded-lg px-3 py-2 text-sm" value="${m.name}" data-id="${m.id}" />
-          <label class="flex items-center gap-2 text-xs px-2 py-1 rounded border"><input type="checkbox" ${m.active?"checked":""} data-act="${m.id}" />Active</label>
+      const list=el("memberList"), count=el("memberCount");
+      count.textContent=`(${state.members.length}/${MAX_MEMBERS})`;
+      list.innerHTML="";
+      state.members.forEach(m=>{
+        const row=document.createElement("div");
+        row.className="flex items-center gap-2";
+        row.innerHTML=`<input type="text" class="flex-1 border rounded-lg px-3 py-2 text-sm" value="${m.name}" data-id="${m.id}">
+          <label class="flex items-center gap-2 text-xs px-2 py-1 rounded border"><input type="checkbox" ${m.active?"checked":""} data-act="${m.id}">Active</label>
           <button class="px-3 py-1 rounded-lg bg-red-50 text-red-700 text-xs border border-red-200 hover:bg-red-100" data-del="${m.id}">Remove</button>`;
         list.appendChild(row);
       });
-      list.querySelectorAll("input[type='text']").forEach(inp=>inp.addEventListener("change",e=>{ const id=e.target.dataset.id; const m=state.members.find(x=>x.id===id); if(m){ m.name=e.target.value||m.name; renderTable(); scheduleSave(); } }));
-      list.querySelectorAll("input[type='checkbox']").forEach(cb=>cb.addEventListener("change",e=>{ const id=e.target.dataset.act; const m=state.members.find(x=>x.id===id); if(m){ m.active=e.target.checked; renderTable(); scheduleSave(); } }));
-      list.querySelectorAll("button[data-del]").forEach(btn=>btn.addEventListener("click",e=>{ const id=e.target.dataset.del; if(state.members.length<=1){ alert("At least 1 member required."); return; } state.members=state.members.filter(x=>x.id!==id); for(const mon of state.months){ if(state.payments[mon]) delete state.payments[mon][id]; } renderMembersPanel(); renderTable(); scheduleSave(); }));
+      list.querySelectorAll("input[data-id]").forEach(inp=>inp.addEventListener("change",e=>{
+        const id=e.target.dataset.id; const m=state.members.find(x=>x.id===id);
+        if(m){ m.name=e.target.value; renderTable(); scheduleSave(); }
+      }));
+      list.querySelectorAll("input[data-act]").forEach(cb=>cb.addEventListener("change",e=>{
+        const id=e.target.dataset.act; const m=state.members.find(x=>x.id===id);
+        if(m){ m.active=e.target.checked; renderTable(); scheduleSave(); }
+      }));
+      list.querySelectorAll("button[data-del]").forEach(btn=>btn.addEventListener("click",e=>{
+        const id=e.target.dataset.del;
+        if(state.members.length<=1){ alert("At least 1 member required."); return; }
+        state.members=state.members.filter(x=>x.id!==id);
+        for(const mon of state.months){ if(state.payments[mon]) delete state.payments[mon][id]; }
+        renderMembersPanel(); renderTable(); scheduleSave();
+      }));
       el("addMemberBtn").disabled=state.members.length>=MAX_MEMBERS;
     }
+
     function setupEvents(){
       el("currencyInput").addEventListener("change",e=>{ state.currency=(e.target.value||"MYR").toUpperCase(); renderTable(); scheduleSave(); });
       el("amountInput").addEventListener("change",e=>{ const v=Number(e.target.value||0); state.monthlyAmount=isNaN(v)?0:v; renderTable(); scheduleSave(); });
-      el("addMemberBtn").addEventListener("click",()=>{ const name=el("newMemberName").value.trim(); if(!name){ alert("Enter member name"); return; } if(state.members.length>=MAX_MEMBERS){ alert("Maximum 6 members"); return; } state.members.push({id:crypto.randomUUID(),name,active:true}); state.months.forEach(ensurePaymentEntry); el("newMemberName").value=""; renderMembersPanel(); renderTable(); scheduleSave(); });
-      el("addMonthBtn").addEventListener("click",()=>{ const mon=el("addMonthInput").value; if(!mon){ alert("Pick a month"); return; } if(!state.months.includes(mon)) state.months.push(mon); state.months.sort(); ensurePaymentEntry(mon); renderTable(); scheduleSave(); });
-      el("genYearBtn").addEventListener("click",()=>{ const y=Number(el("genYearInput").value); if(!y){ alert("Enter a year, e.g., 2025"); return; } for(let m=1;m<=12;m++){ const ym=y+"-"+String(m).padStart(2,"0"); if(!state.months.includes(ym)) state.months.push(ym); } state.months.sort(); state.months.forEach(ensurePaymentEntry); renderTable(); scheduleSave(); });
-      el("exportExcelBtn").addEventListener("click",()=>{ if(!state.months.length||!state.members.length){ alert("Add at least one month and one member."); return; } const header=["Month",...state.members.map(m=>m.name),"Collected ("+state.currency+")","Due ("+state.currency+")","Outstanding ("+state.currency+")"]; const rows=[header];
-        state.months.forEach(mon=>{ ensurePaymentEntry(mon); const pm=state.payments[mon]; let paid=0; const row=[formatMonthLabel(mon)]; state.members.forEach(m=>{ const val=pm[m.id]?"PAID":""; if(pm[m.id]) paid++; row.push(val); }); const due=state.members.length*Number(state.monthlyAmount), collected=paid*Number(state.monthlyAmount), outstanding=due-collected; row.push(collected.toFixed(2),due.toFixed(2),outstanding.toFixed(2)); rows.push(row); });
-        const totals=["Totals"]; state.members.forEach(m=>{ let count=0; state.months.forEach(mon=>{ const pm=state.payments[mon]||{}; if(pm[m.id]) count++; }); totals.push(count+" paid ("+(count*Number(state.monthlyAmount)).toFixed(2)+")"); }); totals.push("","",""); rows.push(totals);
-        const ws=XLSX.utils.aoa_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Payments"); XLSX.writeFile(wb,"youtube-family-tracker.xlsx"); });
-      el("resetAllBtn").addEventListener("click",async()=>{ if(!confirm("Reset all data? This clears the Drive file to defaults.")) return; state={currency:"MYR",monthlyAmount:10,members:[{id:crypto.randomUUID(),name:"Member 1",active:true}],months:[],payments:{}}; renderMembersPanel(); renderTable(); await remoteSave(); });
-      el("forceSaveBtn").addEventListener("click",remoteSave);
-    }
 
-    (async function init(){
-      el("fileNameText").textContent=DRIVE_FILE_NAME;
-      el("endpointText").textContent = GAS_WEB_APP_URL.includes("/exec")?"/exec":"(not /exec)";
-      await remoteLoad();
-      if(!state || !state.members || !state.months){ state={currency:"MYR",monthlyAmount:10,members:[{id:crypto.randomUUID(),name:"Member 1",active:true}],months:[],payments:{}}; }
-      el("currencyInput").value=state.currency; el("amountInput").value=state.monthlyAmount;
-      renderMembersPanel(); renderTable(); setupEvents();
-    })();
-  </script>
-</body>
-</html>
+      el("addMemberBtn").addEventListener("click",()=>{
+        const name=el("newMemberName").value.trim();
+        if(!name){ alert("Enter name"); return; }
+        if(state.members.length>=MAX_MEMBERS){ alert("Max 6"); return; }
+        state.members.push({id:crypto.randomUUID(),name,active:true});
+        state.months.forEach(ensurePaymentEntry);
+        el("newMemberName").value="";
+        renderMembersPanel(); renderTable(); scheduleSave();
+      });
+
+      el("addMonthBtn").addEventListener("click",()=>{
+        const mon=el("addMonthInput").value;
+        if(!mon){ alert("Pick month"); return; }
+        if(!state.months.includes(mon)) state.months.push(mon);
+        sortMonths(); ensurePaymentEntry(mon); renderTable(); scheduleSave();
+      });
+
+      el("genYearBtn").addEventListener("click",()=>{
+        const y=Number(el("genYearInput").value);
+        if(!y){ alert("Enter year"); return; }
+        for(let m=1;m<=12;m++){
+          const ym=`${y}-${String(m).padStart(2,"0")}`;
+          if(!state.months.includes(ym)) state.months.push(ym);
+        }
+        sortMonths(); state.months.forEach(ensurePaymentEntry);
+        renderTable(); scheduleSave();
+      });
+
+      el("exportExcelBtn").addEventListener("click",()=>{
+        if(!state.months.length||!state.members.length){ alert("Add months/members"); return; }
+        const header=["Month",...state.members.map(m=>m.name),"Collected ("+state.currency+")","Due ("+state.currency+")","Outstanding ("+state.currency+")"];
+        const rows=[header];
+        state.months.forEach(mon=>{
+          ensurePaymentEntry(mon);
+          const pm=state.payments[mon]; let paid=0;
+          const row=[formatMonthLabel(mon)];
+          state.members.forEach(m=>{ const val=pm[m.id]?"PAID":""; if(pm[m.id]) paid++; row.push(val); });
+          const due=state.members.length*state.monthlyAmount, collected=paid*state.monthlyAmount, outstanding=due-collected;
+          row.push(collected.toFixed(2),due.toFixed(2),outstanding.toFixed(2));
+          rows.push(row);
+        });
+        const ws=XLSX.utils.aoa_to_sheet(rows);
+        const wb=XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb,ws,"Payments");
+        XLSX.writeFile(wb,"youtube-family-tracker.xlsx");
+      });
+
+      el("resetAllBtn").add
